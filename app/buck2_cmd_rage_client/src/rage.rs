@@ -793,3 +793,27 @@ async fn get_trace_id(
     };
     Ok(invocation_id)
 }
+
+fn save_rage_to_local_zip(
+    logdir: &AbsNormPathBuf,
+    content: &str,
+) -> buck2_error::Result<String> {
+    // Ensure log directory exists.
+    fs_util::create_dir_all(logdir)?;
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let filename = format!("buck2-rage-{timestamp}.zip");
+    let path = logdir.join(FileName::unchecked_new(&filename));
+
+    let file = fs_util::create_file(&path).categorize_internal()?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    zip.start_file("rage.txt", options)?;
+    zip.write_all(content.as_bytes())
+        .buck_error_context("Failed to write rage contents to zip")?;
+    zip.finish()
+        .buck_error_context("Failed to finalize rage zip")?;
+
+    Ok(path.to_string())
+}
