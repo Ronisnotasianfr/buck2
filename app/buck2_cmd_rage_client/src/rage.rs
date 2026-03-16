@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::io::Write as IoWrite;
 use std::process::Stdio;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -26,6 +27,7 @@ use buck2_common::argv::Argv;
 use buck2_common::argv::SanitizedArgv;
 use buck2_common::manifold::Bucket;
 use buck2_common::manifold::ManifoldClient;
+use buck2_core::is_open_source;
 use buck2_data::InstantEvent;
 use buck2_data::RageResult;
 use buck2_data::instant_event::Data;
@@ -40,6 +42,8 @@ use buck2_events::sink::remote::ScribeConfig;
 use buck2_events::sink::remote::new_remote_event_sink_if_enabled;
 use buck2_fs::paths::abs_norm_path::AbsNormPath;
 use buck2_fs::paths::abs_norm_path::AbsNormPathBuf;
+use buck2_fs::paths::file_name::FileName;
+use buck2_fs::fs_util;
 use buck2_util::process::async_background_command;
 use buck2_wrapper_common::invocation_id::TraceId;
 use chrono::DateTime;
@@ -53,6 +57,8 @@ use tokio::io::AsyncBufRead;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
+use zip::write::FileOptions;
+use zip::CompressionMethod;
 
 use crate::manifold::file_to_manifold;
 use crate::manifold::manifold_leads;
@@ -237,7 +243,18 @@ impl RageCommand {
             event_log_dump.to_string(),
             re_logs.to_string(),
         ];
-        output_rage(self.no_paste, &sections.join("")).await?;
+        let full_output = sections.join("");
+
+        if is_open_source() {
+            let zip_path = save_rage_to_local_zip(&logdir, &full_output)?;
+            buck2_client_ctx::eprintln!(
+                "Saved rage diagnostics to {}.\nPlease attach this file when reporting the issue.",
+                zip_path
+            )?;
+            return Ok(());
+        }
+
+        output_rage(self.no_paste, &full_output).await?;
 
         self.send_to_scuba(
             sink,
